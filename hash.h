@@ -22,11 +22,12 @@
 #define HASHMAP_H
 /*
  *
- *      NOT SAFE FOR PRODUCTION! - (But go ahead if you want)
+ *      NOT THREAD-SAFE!
  *
  *
  * My implementation of a dynamic hashmap in C. Like the Python dict or the Java
- * HashMap it has key-value pairs and dynamic allocation.
+ * HashMap it has key-value pairs and dynamic allocation. Uses linear-probing
+ * (open addressing) with tombstones, arena allocation and dynamic resizing.
  *
  * Here we have keys in the form of strings and values are numbers, stored as
  * uintptr_t, which is an integer type guaranteed to be the size of a pointer.
@@ -34,10 +35,8 @@
  * (8bytes) on most new machines. Therefore I can store raw numbers, or pointers
  * as `values`, just like Go does with "any".
  *
- *      **Will update later for hashmaps for any types**
- *
  * How to use:
- *    - No initiation needed, you only create a hashmap either on the stack or on
+ *    - No initiation needed, you create a hashmap either on the stack or on
  *      the heap, works either way. Only need to set capacity to 0 initially.
  *      This can be done by creating the hashmap like so
  *
@@ -48,8 +47,9 @@
  *          hashmap hm = { .capacity = 0 };
  *
  *      Either will set everything to 0, and this will enable the hm_put to set
- *      256 spots, which will grow by a factor of 2 with load factor of 70%,
- *      which means at 70% percent full the capacity will double.
+ *      512 spots, which will grow by a factor of 2 with load factor of 70%,
+ *      which means at 70% percent full the capacity will double. Arena starts
+ *      at 4096 bytes for each chunk, adding chunks as needed.
  *      This ensures fewer collisions and faster lookups, while at the same time
  *      not being too memory expensive.
  *
@@ -71,6 +71,10 @@
  * Benchmarking on a Macbook M1 Pro gave this as the best results with the
  * accompanying test:
  *
+ *     Insert:  100k in ~9 ms (~11.0 Mops/sec)
+ *     Lookup:  100k in ~7 ms (~14 Mops/sec)
+ *     Remove:  100k in ~7 ms (~14 Mops/sec)
+ *
  *     Insert:  200k in ~20ms (~10 Mops/sec)
  *     Lookup:  200k in ~19ms (~10.5 Mops/sec)
  *     Remove:  200k in ~18ms (~11 Mops/sec)
@@ -83,6 +87,7 @@
  * and cleanup. Chunking (or slabs) also makes us be able to increase that during
  * operations, instead of having a fixed arena.
  * */
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 

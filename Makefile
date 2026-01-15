@@ -1,6 +1,6 @@
 BINARY = hash
 CC = gcc
-CFLAGS = -Wall -Wextra -g
+CFLAGS = -Wall -Wextra -g -O0
 
 all: $(BINARY)
 	@$(info Compiling and creating the binary)

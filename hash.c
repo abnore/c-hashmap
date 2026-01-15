@@ -21,14 +21,14 @@ typedef struct {
     size_t default_cap;
 } hm_arena;
 
-hm_arena *hm_arena_init(size_t default_cap) {
-    hm_arena *a = malloc(sizeof *a);
+static void _arena_init(hashmap *hm) {
+    hm_arena *a = malloc(sizeof *hm->arena);
     a->head = NULL;
-    a->default_cap = default_cap;
-    return a;
+    a->default_cap = HM_ARENA_CHUNK_SIZE;
+    hm->arena = a;
 }
 
-void *hm_arena_alloc(hm_arena *a, size_t sz)
+static void *_arena_alloc(hm_arena *a, size_t sz)
 {
     hm_arena_chunk *c = a->head;
 
@@ -63,7 +63,7 @@ void *hm_arena_alloc(hm_arena *a, size_t sz)
     return n->base;
 }
 
-void hm_arena_free(hm_arena *a)
+static void _arena_free(hm_arena *a)
 {
     hm_arena_chunk *s = a->head;
     while (s) {
@@ -80,7 +80,7 @@ static char *_str_arena(hm_arena *a, const char *s)
     size_t n=0, i=0;
     while(s[n++]!=0); // manual strlen
 
-    char *p = hm_arena_alloc(a, n);
+    char *p = _arena_alloc(a, n);
     if (p) {
         while((p[i]=s[i])!='\0') i++; // manual memcpy
     }
@@ -241,9 +241,8 @@ static int _hm_resize(hashmap *hm)
 /* Inserts a key-value pair into the map. */
 int hm_put(hashmap *hm, const char *key, uintptr_t value)
 {
-    if (!hm->arena) {
-        hm->arena = hm_arena_init(HM_ARENA_CHUNK_SIZE);
-    }
+    if (!hm->arena)
+        _arena_init(hm);
 
     if (hm->count * LOAD_FACTOR_DEN >= hm->capacity * LOAD_FACTOR_NUM)
         _hm_resize(hm);
@@ -306,7 +305,7 @@ int hm_remove(hashmap *hm, const char *key)
  */
 void hm_destroy(hashmap *hm)
 {
-    hm_arena_free(hm->arena);
+    _arena_free(hm->arena);
     free(hm->arena);
     free(hm->items);
 }

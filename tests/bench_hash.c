@@ -12,7 +12,7 @@ static long long now_ns(void) {
 }
 
 int main(void) {
-    const size_t N = 50000;
+    const size_t N = 200000;
     char buf[64];
     hashmap hm = {0};
 
