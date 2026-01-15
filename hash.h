@@ -53,18 +53,15 @@
  *      This ensures fewer collisions and faster lookups, while at the same time
  *      not being too memory expensive.
  *
- *    - hm_put will return either 0 or 1.
- *      hm_put will return a 1 when it overwrote the same key, 0 means success.
+ *    - hm_put will return a 1 when it overwrote the same key, 0 means success.
  *      Neither will indicate a hash collision.
  *    - hm_get will return the value in the key value pair or 0 if not found.
  *      that does mean that if you store a 0 you will get your value no matter what
  *    - hm_remove returns a 1 if successful, 0 if not found
  *    - hm_destroy will free everything and ensure no memory leaks
- *
  *    - hm_contains_key will attempt to search by key, should return 1 if found
  *      and 0 if not. If not found every spot will have been checked, making this
  *      the same as a linear search.
- *
  *    - hm_contains_value can only use a linear search and will go through every
  *      position and return 1 if found, 0 if not.
  *
@@ -74,20 +71,20 @@
  * Benchmarking on a Macbook M1 Pro gave this as the best results with the
  * accompanying test:
  *
- *     Insert:  200k in ~20ms  (~10 Mops/sec)
+ *     Insert:  200k in ~20ms (~10 Mops/sec)
  *     Lookup:  200k in ~19ms (~10.5 Mops/sec)
  *     Remove:  200k in ~18ms (~11 Mops/sec)
  *
  * Which is pretty OK for a hand-rolled, simple-arena, linear-probe hash map
  * in plain C. There are better hashes out there and better ways to store strings.
  *
+ * Arena, or Bump, allocator gives a piece of memory in advance that we can use
+ * instead of using malloc per small piece of memory. This saved on a lot of time
+ * and cleanup. Chunking (or slabs) also makes us be able to increase that during
+ * operations, instead of having a fixed arena. 
  * */
-
-typedef struct {
-    unsigned char *base;
-    size_t cap;
-    size_t used;
-} hm_arena;
+#include <stdint.h>
+#include <stdlib.h>
 
 typedef struct{
     char *key;
@@ -96,7 +93,7 @@ typedef struct{
 }hm_entry;
 
 typedef struct{
-    hm_arena *arena;
+    void *arena;
     hm_entry *items;
     size_t capacity;
     size_t count;
@@ -112,7 +109,7 @@ int hm_contains_value(hashmap *hm, uintptr_t value);
 int hm_put(hashmap *hm, const char *key, uintptr_t value);
 
 // Returns the value associated with key, or 0 if not found (or if value 0)
-int hm_get(hashmap *hm, const char *key);
+uintptr_t hm_get(hashmap *hm, const char *key);
 
 // Removes the mapping for key (1 if removes, 0 not found)
 int hm_remove(hashmap *hm, const char *key);
@@ -120,14 +117,5 @@ int hm_remove(hashmap *hm, const char *key);
 // Destroy hashmap, freeing all allocated memory and arena
 void hm_destroy(hashmap *hm);
 
-/* --- arena functions --- */
-// Created a new arena with the size of cap
-hm_arena arena_new(size_t cap);
-
-// Allocated memory, instead of malloc, into the arena
-void *arena_alloc(hm_arena *a, size_t sz);
-
-// Deallocated the entire arena
-void arena_free(hm_arena *a);
 
 #endif // HASHMAP_H

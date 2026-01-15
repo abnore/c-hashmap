@@ -3,13 +3,78 @@
 
 #include "hash.h"
 
+#define DEFAULT_MEM 256
+
+/* --- Arena Implementation and definitions --- 
+ *
+ * Using a singly linked list for the chunks 
+ * */
+typedef struct arena_chunk {
+    unsigned char *base;
+    size_t cap;
+    size_t used;
+    struct arena_chunk *next;
+} hm_arena_chunk;
+
+typedef struct {
+    hm_arena_chunk *head;
+    size_t default_cap;
+} hm_arena;
+
+hm_arena *hm_arena_init(size_t default_cap) {
+    hm_arena *a = malloc(sizeof *a);
+    a->head = NULL;
+    a->default_cap = default_cap;
+    return a;
+}
+
+void *hm_arena_alloc(hm_arena *a, size_t sz)
+{
+    hm_arena_chunk *c = a->head;
+    
+    /* No chunk yet OR not enough room -> grab a new one */
+    if (!c || (c->used + sz > c->cap)) {
+        /* The new chunk is at least default size,
+         * unless the requested sz is bigger. */
+        size_t newcap = a->default_cap > sz ? a->default_cap : sz;
+
+        hm_arena_chunk *new_chunk = malloc(sizeof *new_chunk);
+        new_chunk->base = malloc(newcap);
+        new_chunk->cap = newcap;
+        new_chunk->used = 0;
+
+        /* Push new chunk in front of the list */
+        new_chunk->next = c;
+        a->head = new_chunk;
+        c = new_chunk;
+    }
+
+    /* Make sure its aligned to 8 bytes (size of pointer) */
+    size_t off = (c->used + 7) & ~7;
+
+    // Bump the pointer and hand out memory
+    c->used = off + sz;
+    return c->base + off;
+}
+
+void hm_arena_free(hm_arena *a)
+{
+    hm_arena_chunk *s = a->head;
+    while (s) {
+        hm_arena_chunk *next = s->next;
+        free(s->base);
+        free(s);
+        s = next;
+    }
+    a->head = NULL;
+}
 /* my own utility functions and string builder  */
 static char *_str_arena(hm_arena *a, const char *s)
 {
     size_t n=0, i=0;
     while(s[n++]!=0); // manual strlen
 
-    char *p = arena_alloc(a, n);
+    char *p = hm_arena_alloc(a, n);
     if (p) {
         while((p[i]=s[i])!='\0') i++; // manual memcpy
     }
@@ -24,29 +89,6 @@ static int s_cmp(const char *s1, const char *s2) {
     return (unsigned char)s1[n] - (unsigned char)s2[n];
 }
 #define match(s, n) s_cmp(s, n)==0
-
-hm_arena arena_new(size_t cap) {
-    hm_arena a;
-    a.base = malloc(cap);
-    a.cap  = cap;
-    a.used = 0;
-    return a;
-}
-
-void *arena_alloc(hm_arena *a, size_t sz) {
-    size_t off = (a->used + 7) & ~7;
-    if (off + sz > a->cap)
-        return NULL;
-    void *p = a->base + off;
-    a->used = off + sz;
-    return p;
-}
-
-void arena_free(hm_arena *a) {
-    free(a->base);
-    a->base = NULL;
-    a->cap  = a->used = 0;
-}
 
 /**********/
 
@@ -108,27 +150,6 @@ int hm_contains_value(hashmap *hm, uintptr_t value)
     return 0;
 }
 
-/* Helper to initiate arena */
-static size_t _hm_set_arena(hashmap *hm)
-{
-    /*!!! --- magic number here for size --- !!!*/
-    size_t size = 1024 * 1024 * 5;
-
-    hm->arena = malloc(sizeof (hm_arena));
-    if (!hm->arena) {
-        printf("[ERROR] set arena\n");
-        return -1;
-    }
-
-    *hm->arena = arena_new(size);
-    if (!hm->arena->base) {
-        printf("[ERROR] arena backing alloc failed\n");
-        free(hm->arena);
-        hm->arena = NULL;
-        return -2;
-    }
-    return 0;
-}
 
 /* Internal helper to set an entry */
 static int _hm_set_entry(hashmap *hm, const char *key, uintptr_t value)
@@ -176,7 +197,7 @@ static int _hm_resize(hashmap *hm)
     size_t new_cap = hm->capacity << 1;
 
     if (!new_cap){
-        new_cap = 256;      // just this once to init everything
+        new_cap = DEFAULT_MEM;      // just this once to init everything
     }
 
     hm_entry *old_items = hm->items;
@@ -214,7 +235,9 @@ static int _hm_resize(hashmap *hm)
 /* Inserts a key-value pair into the map. */
 int hm_put(hashmap *hm, const char *key, uintptr_t value)
 {
-    if (!hm->arena) _hm_set_arena(hm);
+    if (!hm->arena) {
+        hm->arena = hm_arena_init(DEFAULT_MEM);
+    }
 
     if (hm->count * LOAD_FACTOR_DEN >= hm->capacity * LOAD_FACTOR_NUM)
         _hm_resize(hm);
@@ -223,7 +246,7 @@ int hm_put(hashmap *hm, const char *key, uintptr_t value)
 }
 
 /* Returns the value associated with key, or null */
-int hm_get(hashmap *hm, const char *key)
+uintptr_t hm_get(hashmap *hm, const char *key)
 {
     if (hm->capacity == 0) return 0;
 
@@ -237,7 +260,7 @@ int hm_get(hashmap *hm, const char *key)
         if (e->key != TOMBSTONE && e->hash == hash){
             if (match(e->key, key))
             {
-                return (int)e->value;
+                return e->value;
             }
         }
         hash_index = (hash_index + 1) & (hm->capacity-1);
@@ -261,11 +284,9 @@ int hm_remove(hashmap *hm, const char *key)
             if (match(e->key, key))
             {
                 e->value = 0;
-
                 e->key = TOMBSTONE;
                 hm->count--;
                 return 1;
-                break;
             }
         }
         hash_index = (hash_index + 1) & (hm->capacity-1);
@@ -276,7 +297,7 @@ int hm_remove(hashmap *hm, const char *key)
 /* Frees arena and then the items array, freeing everything */
 void hm_destroy(hashmap *hm)
 {
-    arena_free(hm->arena);
+    hm_arena_free(hm->arena);
     free(hm->arena);
     free(hm->items);
 }
