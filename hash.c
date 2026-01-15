@@ -1,13 +1,13 @@
-#include <stdio.h>
-#include <stdlib.h>
-
 #include "hash.h"
 
-#define DEFAULT_MEM 256
+/* --- initial size for hash table slots and arena chunks (in bytes) --- */
+#define HM_INITIAL_CAPACITY 1u<<9   // 512 default capacity, doubles
+#define HM_ARENA_CHUNK_SIZE 1u<<12  // 4096 bytes par chunk
 
 /* --- Arena Implementation and definitions ---
  *
  * Using a singly linked list for the chunks
+ * Arena lifetime is bound to hashmap lifetime
  * */
 typedef struct arena_chunk {
     unsigned char *base;
@@ -102,7 +102,7 @@ static int s_cmp(const char *s1, const char *s2) {
 #define FNV_PRIME  0x100000001b3
 
 /* This returns a 64-bit (size_t) fnv-1a hash for a given key,
- * assumed to be NUL-terminated
+ * assumed to be null-terminated
  *
  * https://en.wikipedia.org/wiki/Fowler–Noll–Vo_hash_function
  * */
@@ -203,7 +203,7 @@ static int _hm_resize(hashmap *hm)
     size_t new_cap = hm->capacity << 1;
 
     if (!new_cap){
-        new_cap = DEFAULT_MEM;      // just this once to init everything
+        new_cap = HM_INITIAL_CAPACITY;      // just this once to init everything
     }
 
     hm_entry *old_items = hm->items;
@@ -242,7 +242,7 @@ static int _hm_resize(hashmap *hm)
 int hm_put(hashmap *hm, const char *key, uintptr_t value)
 {
     if (!hm->arena) {
-        hm->arena = hm_arena_init(DEFAULT_MEM);
+        hm->arena = hm_arena_init(HM_ARENA_CHUNK_SIZE);
     }
 
     if (hm->count * LOAD_FACTOR_DEN >= hm->capacity * LOAD_FACTOR_NUM)
@@ -300,7 +300,10 @@ int hm_remove(hashmap *hm, const char *key)
     }
     return 0;
 }
-/* Frees arena and then the items array, freeing everything */
+
+/* Frees arena, arena struct, and item array.
+ * Does NOT free hashmap struct itself.
+ */
 void hm_destroy(hashmap *hm)
 {
     hm_arena_free(hm->arena);

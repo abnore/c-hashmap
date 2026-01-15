@@ -78,10 +78,10 @@
  * Which is pretty OK for a hand-rolled, simple-arena, linear-probe hash map
  * in plain C. There are better hashes out there and better ways to store strings.
  *
- * Arena, or Bump, allocator gives a piece of memory in advance that we can use
+ * Arena, or bump, allocator gives a piece of memory in advance that we can use
  * instead of using malloc per small piece of memory. This saved on a lot of time
  * and cleanup. Chunking (or slabs) also makes us be able to increase that during
- * operations, instead of having a fixed arena. 
+ * operations, instead of having a fixed arena.
  * */
 #include <stdint.h>
 #include <stdlib.h>
