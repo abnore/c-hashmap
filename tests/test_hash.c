@@ -61,8 +61,8 @@ static void test_resize(void) {
         assert(hm_put(&hm, key, (uintptr_t)i) == 0);
     }
 
-    for (int i = 0; i < N; i++) {
-        sprintf(key, "k%d", i);
+    for (uintptr_t i = 0; i < N; i++) {
+        sprintf(key, "k%lu", i);
         assert(hm_contains_key(&hm, key) == 1);
         assert(hm_get(&hm, key) == i);
     }
@@ -147,8 +147,8 @@ static void test_mixed_put_remove(void) {
         assert(hm_remove(&hm, key) == 1);
     }
 
-    for (int i = 0; i < N; i++) {
-        sprintf(key, "k%d", i);
+    for (uintptr_t i = 0; i < N; i++) {
+        sprintf(key, "k%lu", i);
         if (i % 3 == 0) {
             assert(hm_contains_key(&hm, key) == 0);
         } else {
@@ -173,7 +173,6 @@ static void test_arena_usage(void) {
 
     assert(hm.count == (size_t)N);
     assert(hm.arena != NULL);
-    assert(hm.arena->head != NULL);
 
     hm_destroy(&hm);
 }

@@ -5,9 +5,9 @@
 
 #define DEFAULT_MEM 256
 
-/* --- Arena Implementation and definitions --- 
+/* --- Arena Implementation and definitions ---
  *
- * Using a singly linked list for the chunks 
+ * Using a singly linked list for the chunks
  * */
 typedef struct arena_chunk {
     unsigned char *base;
@@ -31,30 +31,36 @@ hm_arena *hm_arena_init(size_t default_cap) {
 void *hm_arena_alloc(hm_arena *a, size_t sz)
 {
     hm_arena_chunk *c = a->head;
-    
-    /* No chunk yet OR not enough room -> grab a new one */
-    if (!c || (c->used + sz > c->cap)) {
-        /* The new chunk is at least default size,
-         * unless the requested sz is bigger. */
-        size_t newcap = a->default_cap > sz ? a->default_cap : sz;
 
-        hm_arena_chunk *new_chunk = malloc(sizeof *new_chunk);
-        new_chunk->base = malloc(newcap);
-        new_chunk->cap = newcap;
-        new_chunk->used = 0;
+    if (c) {
+        /* align allocation start (must be done before capacity check) */
+        size_t off = (c->used + 7) & ~((size_t)7);
 
-        /* Push new chunk in front of the list */
-        new_chunk->next = c;
-        a->head = new_chunk;
-        c = new_chunk;
+        /* ensure aligned allocation fits in chunk */
+        if (off + sz <= c->cap) {
+            c->used = off + sz;
+            return c->base + off;
+        }
     }
 
-    /* Make sure its aligned to 8 bytes (size of pointer) */
-    size_t off = (c->used + 7) & ~7;
+    /* allocate new chunk if no space */
+    size_t cap = a->default_cap > sz ? a->default_cap : sz;
 
-    // Bump the pointer and hand out memory
-    c->used = off + sz;
-    return c->base + off;
+    hm_arena_chunk *n = malloc(sizeof *n);
+    if (!n) return NULL;
+
+    n->base = malloc(cap);
+    if (!n->base) {
+        free(n);
+        return NULL;
+    }
+
+    n->cap  = cap;
+    n->used = sz;        // first allocation, already aligned
+    n->next = a->head;
+    a->head = n;
+
+    return n->base;
 }
 
 void hm_arena_free(hm_arena *a)

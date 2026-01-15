@@ -38,7 +38,7 @@ int main(void) {
     start = now_ns();
     for (size_t i=0; i<N; i++) {
         sprintf(buf, "k%zu", i);
-        if (hm_get(&hm, buf) == (int)i) hits++;
+        if (hm_get(&hm, buf) == i) hits++;
     }
     end = now_ns();
     double get_ms = (end-start)/1e6;
