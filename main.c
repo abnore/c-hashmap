@@ -41,6 +41,12 @@ int main(void) {
 
     printf("Did this work?: %s\n", (const char*)string_addr);
 
+    hm_it it = hm_iterator(&hm);
+
+    while (hm_it_next(&it)){
+       printf("%s - %lu\n", it.key, it.value);
+    }
+
     hm_destroy(&hm);
     return 0;
 }

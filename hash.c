@@ -1,62 +1,73 @@
 #include "hash.h"
+#include <sys/mman.h>
+#include <stdlib.h>
 
 /* --- initial size for hash table slots and arena chunks (in bytes) --- */
+#define PAGE_SIZE 4096
 #define HM_INITIAL_CAPACITY 1u<<9   // 512 default capacity, doubles
-#define HM_ARENA_CHUNK_SIZE 1u<<12  // 4096 bytes par chunk
 
 /* --- Arena Implementation and definitions ---
  *
- * Using a singly linked list for the chunks
- * Arena lifetime is bound to hashmap lifetime
+ * Using a singly linked list for the chunks which are multiples of PAGE_SIZE,
+ * or 4096. Backing it up with direct allocation through mmap, skipping malloc
+ * overhead. Bump-pointer based on 8-byte alignement, with the metadata stored
+ * within the chink itself. Arena lifetime is bound to hashmap lifetime,
  * */
+
 typedef struct arena_chunk {
-    unsigned char *base;
-    size_t cap;
-    size_t used;
     struct arena_chunk *next;
+    size_t used;
+    size_t size;
+    unsigned char *base;
 } hm_arena_chunk;
 
 typedef struct {
     hm_arena_chunk *head;
-    size_t default_cap;
 } hm_arena;
 
 static void _arena_init(hashmap *hm) {
     hm_arena *a = malloc(sizeof *hm->arena);
     a->head = NULL;
-    a->default_cap = HM_ARENA_CHUNK_SIZE;
     hm->arena = a;
 }
 
 static void *_arena_alloc(hm_arena *a, size_t sz)
 {
     hm_arena_chunk *c = a->head;
+    hm_arena_chunk *n;
 
     if (c) {
-        /* align allocation start (must be done before capacity check) */
+        /* align allocation
+         * this is the same as rounding up to nearest multiple of 8 */
         size_t off = (c->used + 7) & ~((size_t)7);
 
         /* ensure aligned allocation fits in chunk */
-        if (off + sz <= c->cap) {
+        if (off + sz <= c->size) {
             c->used = off + sz;
             return c->base + off;
         }
     }
 
-    /* allocate new chunk if no space */
-    size_t cap = a->default_cap > sz ? a->default_cap : sz;
+    /* Here we didnt fit in the remaining page, and that last chunk is
+     * considered full. We create a the next one. We allocate a full page, or
+     * if the rare case happen that the key is larger, we give more space,
+     * rounding to nearest page size */
+    if (sz > PAGE_SIZE - sizeof(hm_arena_chunk)) {
+        size_t total = sizeof(hm_arena_chunk) + sz;
+        size_t t_align = (total + PAGE_SIZE - 1) & ~((size_t)PAGE_SIZE - 1);
 
-    hm_arena_chunk *n = malloc(sizeof *n);
-    if (!n) return NULL;
-
-    n->base = malloc(cap);
-    if (!n->base) {
-        free(n);
-        return NULL;
+        n = mmap(NULL, t_align, PROT_READ | PROT_WRITE,
+                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (n == MAP_FAILED) return NULL;
+        n->size = t_align;
+    } else {
+        n = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (n == MAP_FAILED) return NULL;
+        n->size = PAGE_SIZE;
     }
-
-    n->cap  = cap;
-    n->used = sz;        // first allocation, already aligned
+    n->base = (unsigned char *)(n + 1);
+    n->used = sz;
     n->next = a->head;
     a->head = n;
 
@@ -68,8 +79,7 @@ static void _arena_free(hm_arena *a)
     hm_arena_chunk *s = a->head;
     while (s) {
         hm_arena_chunk *next = s->next;
-        free(s->base);
-        free(s);
+        munmap(s, s->size);
         s = next;
     }
     a->head = NULL;
@@ -77,17 +87,14 @@ static void _arena_free(hm_arena *a)
 /* my own utility functions and string builder  */
 static char *_str_arena(hm_arena *a, const char *s)
 {
-    size_t n=0, i=0;
+    size_t n=0,i=0;
     while(s[n++]!=0); // manual strlen
-
-    char *p = _arena_alloc(a, n);
-    if (p) {
-        while((p[i]=s[i])!='\0') i++; // manual memcpy
-    }
+    char *p = _arena_alloc(a,n);
+    while((p[i]=s[i])!='\0') i++; // manual memcpy
     return p;
 }
 
-/* assume null-terminated - safe because not exposed to users */
+/* assume null-terminated - safe because only used internally */
 static int s_cmp(const char *s1, const char *s2) {
     size_t n = 0;
     while (s1[n] && s2[n] && s1[n] == s2[n])
@@ -203,7 +210,7 @@ static int _hm_resize(hashmap *hm)
     size_t new_cap = hm->capacity << 1;
 
     if (!new_cap){
-        new_cap = HM_INITIAL_CAPACITY;      // just this once to init everything
+        new_cap = HM_INITIAL_CAPACITY;  // just this once to init everything
     }
 
     hm_entry *old_items = hm->items;
@@ -308,4 +315,38 @@ void hm_destroy(hashmap *hm)
     _arena_free(hm->arena);
     free(hm->arena);
     free(hm->items);
+}
+
+/*  This is a simple iterator for a hashmap, returns next key-value pair.
+ *  Call the hm_iterator, to get an iterator connected to the hashmap you pass.
+ *  Then you can get the next key-value pair by calling hm_it_next, and
+ *  retrieving the key and value from the iterator hm_it object.
+ *
+ *  Example:
+ *      hm_it it = hm_iterator(&hm);
+ *      hm_it_next(&it);
+ *      printf("%s - %lu\n", it.key, it.value);
+ *
+ *  Skips empty slots and tombstones, and the order is undefined
+*/
+hm_it hm_iterator(hashmap *hm){
+    return (hm_it){ .hm = hm, .index = 0 };
+}
+
+int hm_it_next(hm_it *it)
+{
+    hashmap *hm = it->hm;
+
+    while (it->index < hm->capacity) {
+        hm_entry *e = &hm->items[it->index++];
+
+        if (e->key == NULL || e->key == TOMBSTONE)
+            continue;
+
+        it->key = e->key;
+        it->value = e->value;
+        return 1;
+    }
+
+    return 0;
 }

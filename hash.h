@@ -1,22 +1,22 @@
 /* Copyright (c) 2026 Andreas B. Nore <github.com/abnore>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
- * of the Software, and to permit persons to whom the Software is furnished to do
- * so, subject to the following conditions:
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
  * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
  */
 #ifndef HASHMAP_H
 #define HASHMAP_H
@@ -25,15 +25,16 @@
  *      NOT THREAD-SAFE!
  *
  *
- * My implementation of a dynamic hashmap in C. Like the Python dict or the Java
- * HashMap it has key-value pairs and dynamic allocation. Uses linear-probing
- * (open addressing) with tombstones, arena allocation and dynamic resizing.
+ * My implementation of a dynamic hashmap in C. Like the Python dict or the
+ * Java HashMap it has key-value pairs and dynamic allocation. Uses
+ * linear-probing (open addressing) with tombstones, arena allocation and
+ * dynamic resizing.
  *
  * Here we have keys in the form of strings and values are numbers, stored as
  * uintptr_t, which is an integer type guaranteed to be the size of a pointer.
  * Pointers are, as far as i know, always the architecture size, e.g. 64bit
- * (8bytes) on most new machines. Therefore I can store raw numbers, or pointers
- * as `values`, just like Go does with "any".
+ * (8bytes) on most new machines. Therefore I can store raw numbers, or
+ * pointers as `values`, just like Go does with "any".
  *
  * How to use:
  *    - No initiation needed, you create a hashmap either on the stack or on
@@ -49,21 +50,23 @@
  *      Either will set everything to 0, and this will enable the hm_put to set
  *      512 spots, which will grow by a factor of 2 with load factor of 70%,
  *      which means at 70% percent full the capacity will double. Arena starts
- *      at 4096 bytes for each chunk, adding chunks as needed.
- *      This ensures fewer collisions and faster lookups, while at the same time
- *      not being too memory expensive.
+ *      at 4096 bytes for each chunk, adding chunks as needed. This ensures
+ *      fewer collisions and faster lookups, while at the same time not being
+ *      too memory expensive.
  *
  *    - hm_put will return a 1 when it overwrote the same key, 0 means success.
  *      Neither will indicate a hash collision.
  *    - hm_get will return the value in the key value pair or 0 if not found.
- *      that does mean that if you store a 0 you will get your value no matter what
+ *      that does mean if you store a 0 you will get your value no matter what
  *    - hm_remove returns a 1 if successful, 0 if not found
  *    - hm_destroy will free everything and ensure no memory leaks
  *    - hm_contains_key will attempt to search by key, should return 1 if found
- *      and 0 if not. If not found every spot will have been checked, making this
- *      the same as a linear search.
+ *      and 0 if not. If not found every spot has been checked, making this the
+ *      same as a linear search.
  *    - hm_contains_value can only use a linear search and will go through every
  *      position and return 1 if found, 0 if not.
+ *    - hm_iterator creates an iterator over the hashmap
+ *    - hm_it_next advances the iterator and returns the next key-value pair
  *
  * Internally we use linear probing and the fuller the array gets, the closer
  * to linear it will become. Therefore it is never more than 70% full.
@@ -79,17 +82,16 @@
  *     Lookup:  200k in ~19ms (~10.5 Mops/sec)
  *     Remove:  200k in ~18ms (~11 Mops/sec)
  *
- * Which is pretty OK for a hand-rolled, simple-arena, linear-probe hash map
- * in plain C. There are better hashes out there and better ways to store strings.
+ * Which is pretty OK for a hand-rolled, simple-arena, linear-probe hash map in
+ * plain C. There are better hashes out there and better ways to store strings.
  *
  * Arena, or bump, allocator gives a piece of memory in advance that we can use
- * instead of using malloc per small piece of memory. This saved on a lot of time
- * and cleanup. Chunking (or slabs) also makes us be able to increase that during
- * operations, instead of having a fixed arena.
+ * instead of using malloc per small piece of memory. This saved on a lot of
+ * time and cleanup. Chunking (or slabs) also makes us be able to increase that
+ * during operations, instead of having a fixed arena.
  * */
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 typedef struct{
     char *key;
@@ -103,6 +105,13 @@ typedef struct{
     size_t capacity;
     size_t count;
 }hashmap;
+
+typedef struct{
+    char *key;
+    uintptr_t value;
+    hashmap *hm;
+    size_t index;
+}hm_it;
 
 // Checks if the map contains a map to key, 1=yes, 0=no
 int hm_contains_key(hashmap *hm, const char *key);
@@ -122,5 +131,10 @@ int hm_remove(hashmap *hm, const char *key);
 // Destroy hashmap, freeing all allocated memory and arena
 void hm_destroy(hashmap *hm);
 
+// Creates an iterator over the hashmap
+hm_it hm_iterator(hashmap *hm);
+
+// Returns 1 if it got the next entry (key-value pair), 0 when no more entries
+int hm_it_next(hm_it *it);
 
 #endif // HASHMAP_H
