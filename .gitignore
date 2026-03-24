@@ -1,5 +1,0 @@
-.gitignore
-tests/bench
-tests/heavy_test
-tests/test
-hash
