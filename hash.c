@@ -125,7 +125,8 @@ static size_t hash_key(const char* key)
 
 /* Linear probing needs to skip empty slots that WERE taken, but also we need
  * to be able to fill in removed spots - therefore we need a marker!
- * Create an empty string and declare TOMBSTONE to be a pointer to this string */
+ * Create an empty string and declare TOMBSTONE to be a pointer to this string
+ * */
 static char deleted[] = " ";
 #define TOMBSTONE ((char*)deleted)
 
@@ -241,7 +242,8 @@ static int _hm_resize(hashmap *hm)
     return 0;
 }
 
-/* Creates a load factor of 70% making sure its a sweet spot for linear probing */
+/* Creates a load factor of 70% making sure its a sweet spot for linear probing
+ * */
 #define LOAD_FACTOR_NUM 7
 #define LOAD_FACTOR_DEN 10
 

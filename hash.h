@@ -38,7 +38,7 @@
  *
  * How to use:
  *    - No initiation needed, you create a hashmap either on the stack or on
- *      the heap, works either way. Only need to set capacity to 0 initially.
+ *      the heap, works either way. Only need to set all fields to 0 initially.
  *      This can be done by creating the hashmap like so
  *
  *          hashmap hm = {0};
